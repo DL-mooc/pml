@@ -1,0 +1,85 @@
+---
+title: "Human Activity Recognition Analysis"
+author: "Daria Lidina"
+date: "Sunday, February 22, 2015"
+output: html_document
+---
+
+This analysis builds a model to predict predict activity quality from activity monitors. Data for this analysis was downloaded from a course page on Coursera but the original source is http://groupware.les.inf.puc-rio.br/har.
+
+## Getting and preprocessing data
+
+The data for this analysis is assumed to be downloaded beforehand into `data` subdirectory of a working directory where the script is run.
+
+```{r}
+dt_raw <- read.csv("data/pml-training.csv", row.names=1)
+dt_test <- read.csv("data/pml-testing.csv", row.names=1)
+```
+
+### Dealing with missing values
+```{r}
+table(colSums(is.na(dt_raw)), colSums(is.na(dt_test)))
+```
+
+Both datasets have some `NA`s in their columns. For the test set there are 100 columns consisting only of NA values. Obviously, that columns can't be used for prediction. The table also shows that all the columns having `NA`s in the training dataset also have `NA`s in testing dataset, so after removing those 100 the training dataset will no longer contain any `NA`s.
+
+The first 6 columns of the dataset are attributes of particular observation, not possible predictors, they should also be removed.
+
+```{r}
+indexingColumns <- names(dt_raw)[1:6]
+dt_compact <- dt_raw[, 
+                     (colSums(is.na(dt_test)) == 0) 
+                     & !(names(dt_raw) %in% indexingColumns)]
+table(sapply(dt_compact, class))
+```
+
+We are running no more transformations on data, so it will be possible to apply the model built using the `dt_compact` datasets directly to the `dt_test`. 
+
+## Building a model
+
+First all the data is partitioned in training and validation sets. Validation data is set aside to only check the final model.
+```{r, message=FALSE}
+library(caret)
+set.seed(34656)
+inTrain <- createDataPartition(y = dt_compact$classe, p = 0.7, list = FALSE)
+training   <- dt_compact[inTrain, ]        # training set
+validation <- dt_compact[-inTrain, ]       # validaton set
+```
+
+The model built in this analysis is a random forest model
+```{r, message=FALSE}
+library(randomForest)
+rfModel <- randomForest(classe ~ ., data = training)
+```
+
+## Model evaluation
+
+Checking the model against the validation dataset.
+```{r}
+predcv <- predict(rfModel, validation)
+rfConfusion <- confusionMatrix(validation$classe, predcv)
+print(rfConfusion)
+```
+
+* The model accuracy is 0.9941 with 95% confidence.
+* The out of sample error is 0.0059
+* The P Value is small (< 2.2e-16), indicating a statistically significant test
+* For all classes sensitivity and specificity are high (>98%).
+
+## Predicting activities for test cases
+
+```{r}
+predt <- predict(rfModel, dt_test)
+print(predt)
+```
+
+```{r, echo=FALSE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("test_cases/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(as.character(predt))
+```
